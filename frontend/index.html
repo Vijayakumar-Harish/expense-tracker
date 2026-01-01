@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Expense Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial;
+      background: #f4f6f8;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+    }
+    input, button {
+      padding: 10px;
+      margin: 5px;
+    }
+    button {
+      cursor: pointer;
+    }
+    .metrics {
+      display: flex;
+      gap: 20px;
+    }
+    .metric {
+      flex: 1;
+      background: #eef2ff;
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    #message {
+  padding: 10px;
+  border-radius: 6px;
+  font-weight: bold;
+}
+
+.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.warning {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+  </style>
+</head>
+<body>
+
+<h1>💰 Expense Tracker</h1>
+
+<div class="card">
+  <input id="month" placeholder="Month (e.g. January)" />
+  <input id="amount" type="number" placeholder="Amount ₹" />
+  <input id="desc" placeholder="Description" />
+  <button onclick="addExpense()">Add Expense</button>
+  <div id="message" style="display:none; margin-top:10px;"></div>
+
+</div>
+
+<div class="metrics">
+  <div class="metric">
+    <h3>Total Spent</h3>
+    <p id="total">₹0</p>
+  </div>
+  <div class="metric">
+    <h3>Highest Month</h3>
+    <p id="highest">-</p>
+  </div>
+  <div class="metric">
+    <h3>Lowest Month</h3>
+    <p id="lowest">-</p>
+  </div>
+</div>
+
+<div class="card">
+  <canvas id="chart"></canvas>
+</div>
+
+<script>
+const API = "http://localhost:4000";
+function showMessage(text, type) {
+  const msg = document.getElementById("message");
+  msg.className = type;
+  msg.innerText = text;
+  msg.style.display = "block";
+
+  setTimeout(() => {
+    msg.style.display = "none";
+  }, 3000);
+}
+async function addExpense() {
+  const month = document.getElementById("month").value.trim();
+  const amount = Number(document.getElementById("amount").value);
+  const description = document.getElementById("desc").value.trim();
+
+  // Validation
+  if (!month || !amount || !description) {
+    showMessage("⚠️ Please fill all fields", "warning");
+    return;
+  }
+
+  try {
+    const res = await fetch(API + "/expense", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ month, amount, description })
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to add expense");
+    }
+
+    showMessage("✅ Expense added successfully!", "success");
+
+    // Clear inputs
+    document.getElementById("month").value = "";
+    document.getElementById("amount").value = "";
+    document.getElementById("desc").value = "";
+
+    loadExpenses();
+  } catch (err) {
+    showMessage("❌ Something went wrong. Try again.", "error");
+  }
+}
+async function loadExpenses() {
+  const res = await fetch(API + "/expenses");
+  const data = await res.json();
+
+  const monthly = {};
+  let total = 0;
+
+  data.forEach(e => {
+    monthly[e.month] = (monthly[e.month] || 0) + e.amount;
+    total += e.amount;
+  });
+
+  document.getElementById("total").innerText = "₹" + total;
+
+  const entries = Object.entries(monthly);
+  if (entries.length > 0) {
+    const sorted = entries.sort((a, b) => a[1] - b[1]);
+    document.getElementById("lowest").innerText = sorted[0][0];
+    document.getElementById("highest").innerText = sorted[sorted.length - 1][0];
+  }
+
+  renderChart(monthly);
+}
+
+let chart;
+function renderChart(data) {
+  const ctx = document.getElementById("chart");
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: Object.keys(data),
+      datasets: [{
+        label: "Monthly Expense (₹)",
+        data: Object.values(data),
+        backgroundColor: "#6366f1"
+      }]
+    }
+  });
+}
+
+loadExpenses();
+</script>
+
+</body>
+</html>
