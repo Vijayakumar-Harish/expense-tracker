@@ -17,9 +17,11 @@ mongoose.connect(process.env.MONGO_URI)
 // -------------------- Schema --------------------
 const expenseSchema = new mongoose.Schema({
   month: String,
+  day: Number,
   amount: Number,
   description: String,
 });
+
 
 const Expense = mongoose.model("Expense", expenseSchema);
 
