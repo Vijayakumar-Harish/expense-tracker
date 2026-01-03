@@ -6,38 +6,66 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-body {
-  font-family: Arial;
-  background: #f4f6f8;
-  padding: 20px;
+:root {
+  --primary: #6366f1;
+  --bg: #f1f5f9;
+  --card: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --success: #16a34a;
+  --danger: #dc2626;
 }
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: Inter, system-ui, sans-serif;
+  background: var(--bg);
+  margin: 0;
+  padding: 24px;
+}
+
+h1 { margin-bottom: 24px; }
 
 .card {
-  background: white;
+  background: var(--card);
   padding: 20px;
+  border-radius: 12px;
   margin-bottom: 20px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+}
+
+input, select {
+  padding: 10px 12px;
   border-radius: 8px;
+  border: 1px solid #e5e7eb;
 }
 
-input, button, select {
-  padding: 10px;
-  margin: 5px;
+button {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--primary);
+  color: white;
+  cursor: pointer;
 }
-
-button { cursor: pointer; }
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
 }
 
 .metric {
-  background: #eef2ff;
-  padding: 15px;
-  border-radius: 8px;
+  background: linear-gradient(135deg, #eef2ff, #ffffff);
+  padding: 16px;
+  border-radius: 12px;
   text-align: center;
+}
+
+.metric p {
+  font-size: 22px;
+  font-weight: 600;
 }
 
 table {
@@ -46,21 +74,48 @@ table {
 }
 
 th, td {
-  padding: 10px;
-  border-bottom: 1px solid #ddd;
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
   text-align: center;
 }
 
-#message {
-  margin-top: 10px;
-  padding: 10px;
+tr:hover { background: #f8fafc; }
+
+canvas { max-height: 300px; }
+
+/* ---------- MODAL ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
   display: none;
-  font-weight: bold;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
 }
 
-.success { background: #dcfce7; color: #166534; }
-.error { background: #fee2e2; color: #991b1b; }
-.warning { background: #fef9c3; color: #854d0e; }
+.modal {
+  background: white;
+  padding: 24px;
+  border-radius: 14px;
+  width: 340px;
+}
+
+.modal-details {
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 14px 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-danger { background: var(--danger); }
+.btn-secondary { background: #e5e7eb; color: #111; }
 </style>
 </head>
 
@@ -68,29 +123,22 @@ th, td {
 
 <h1>💰 Expense Tracker</h1>
 
+<!-- ADD EXPENSE -->
 <div class="card">
   <input id="dateInput" type="date" />
   <input id="amountInput" type="number" placeholder="Amount ₹" />
   <input id="descInput" placeholder="Description" />
   <button onclick="addExpense()">Add Expense</button>
-  <div id="message"></div>
 </div>
 
+<!-- METRICS -->
 <div class="metrics">
-  <div class="metric">
-    <h4>Total Spent</h4>
-    <p id="totalText">₹0</p>
-  </div>
-  <div class="metric">
-    <h4>This Month</h4>
-    <p id="monthText">₹0</p>
-  </div>
-  <div class="metric">
-    <h4>Today</h4>
-    <p id="todayText">₹0</p>
-  </div>
+  <div class="metric"><h4>Total</h4><p id="totalText">₹0</p></div>
+  <div class="metric"><h4>This Month</h4><p id="monthText">₹0</p></div>
+  <div class="metric"><h4>Today</h4><p id="todayText">₹0</p></div>
 </div>
 
+<!-- CHARTS -->
 <div class="card">
   <h3>📊 Monthly Expense</h3>
   <canvas id="monthChart"></canvas>
@@ -102,6 +150,7 @@ th, td {
   <canvas id="dayChart"></canvas>
 </div>
 
+<!-- TABLE -->
 <div class="card">
   <h3>🧾 Expense History</h3>
   <table>
@@ -110,42 +159,38 @@ th, td {
         <th>Date</th>
         <th>Description</th>
         <th>₹</th>
-        <th>❌</th>
+        <th></th>
       </tr>
     </thead>
     <tbody id="expenseTable"></tbody>
   </table>
 </div>
 
+<!-- DELETE MODAL -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3>Delete Expense?</h3>
+    <div class="modal-details">
+      <p><b>Date:</b> <span id="delDate"></span></p>
+      <p><b>Description:</b> <span id="delDesc"></span></p>
+      <p><b>Amount:</b> ₹<span id="delAmount"></span></p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn-danger" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = "http://localhost:4000";
-
 let expenses = [];
-let monthChart = null;
-let dayChart = null;
+let deleteId = null;
+let monthChart, dayChart;
 
-/* MESSAGE */
-function showMessage(text, type) {
-  const msg = document.getElementById("message");
-  msg.className = type;
-  msg.innerText = text;
-  msg.style.display = "block";
-  setTimeout(() => msg.style.display = "none", 3000);
-}
-
-/* ADD EXPENSE */
+/* ADD */
 async function addExpense() {
-  const dateValue = document.getElementById("dateInput").value;
-  const amountValue = Number(document.getElementById("amountInput").value);
-  const description = document.getElementById("descInput").value.trim();
-
-  if (!dateValue || !amountValue || !description) {
-    showMessage("⚠️ Fill all fields", "warning");
-    return;
-  }
-
-  const d = new Date(dateValue);
-
+  const d = new Date(dateInput.value);
   await fetch(API + "/expense", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -153,16 +198,10 @@ async function addExpense() {
       date: d,
       month: d.toLocaleString("default", { month: "long" }),
       day: d.getDate(),
-      amount: amountValue,
-      description
+      amount: Number(amountInput.value),
+      description: descInput.value
     })
   });
-
-  showMessage("✅ Expense added", "success");
-  document.getElementById("dateInput").value = "";
-  document.getElementById("amountInput").value = "";
-  document.getElementById("descInput").value = "";
-
   loadExpenses();
 }
 
@@ -170,7 +209,6 @@ async function addExpense() {
 async function loadExpenses() {
   const res = await fetch(API + "/expenses");
   expenses = await res.json();
-
   renderMetrics();
   renderMonthChart();
   populateMonthDropdown();
@@ -180,28 +218,29 @@ async function loadExpenses() {
 
 /* METRICS */
 function renderMetrics() {
-  const todayStr = new Date().toDateString();
+  const today = new Date().toDateString();
   const currentMonth = new Date().toLocaleString("default", { month: "long" });
 
-  let total = 0;
-  let todayTotal = 0;
-  let monthTotal = 0;
+  let total = 0, todayTotal = 0, monthTotal = 0;
 
   expenses.forEach(e => {
     total += e.amount;
-    if (new Date(e.date).toDateString() === todayStr) todayTotal += e.amount;
+    if (new Date(e.date).toDateString() === today) todayTotal += e.amount;
     if (e.month === currentMonth) monthTotal += e.amount;
   });
 
-  document.getElementById("totalText").innerText = "₹" + total;
-  document.getElementById("todayText").innerText = "₹" + todayTotal;
-  document.getElementById("monthText").innerText = "₹" + monthTotal;
+  totalText.innerText = "₹" + total;
+  todayText.innerText = "₹" + todayTotal;
+  monthText.innerText = "₹" + monthTotal;
 }
 
 /* MONTH CHART */
 function renderMonthChart() {
   const data = {};
-  expenses.forEach(e => data[e.month] = (data[e.month] || 0) + e.amount);
+
+  expenses.forEach(e => {
+    data[e.month] = (data[e.month] || 0) + e.amount;
+  });
 
   if (monthChart) monthChart.destroy();
 
@@ -210,75 +249,109 @@ function renderMonthChart() {
     data: {
       labels: Object.keys(data),
       datasets: [{
-        label: "Monthly Expense (₹)",
+        label: "Monthly Expense (₹)", // ✅ REQUIRED
         data: Object.values(data),
         backgroundColor: "#6366f1"
       }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false }
+      }
     }
   });
 }
 
 /* DAY CHART */
 function populateMonthDropdown() {
-  const select = document.getElementById("monthSelect");
-  select.innerHTML = "";
+  monthSelect.innerHTML = "";
 
-  [...new Set(expenses.map(e => e.month))].forEach(m => {
+  const months = [...new Set(expenses.map(e => e.month))];
+
+  months.forEach(m => {
     const o = document.createElement("option");
     o.value = m;
     o.innerText = m;
-    select.appendChild(o);
+    monthSelect.appendChild(o);
   });
 
-  select.onchange = renderDayChart;
+  if (months.length > 0) {
+    monthSelect.value = months[0]; // ✅ SELECT FIRST MONTH
+  }
 }
 
 function renderDayChart() {
-  const month = document.getElementById("monthSelect").value;
+  const month = monthSelect.value;
   if (!month) return;
 
   const data = {};
-  expenses.filter(e => e.month === month)
-    .forEach(e => data[e.day] = (data[e.day] || 0) + e.amount);
+  expenses
+    .filter(e => e.month === month)
+    .forEach(e => {
+      data[e.day] = (data[e.day] || 0) + e.amount;
+    });
+
+  const sortedDays = Object.keys(data).sort((a, b) => a - b);
 
   if (dayChart) dayChart.destroy();
 
   dayChart = new Chart(document.getElementById("dayChart"), {
     type: "line",
     data: {
-      labels: Object.keys(data),
+      labels: sortedDays,
       datasets: [{
-        label: "Day-wise Expense (₹)",
-        data: Object.values(data),
+        label: `Daily Expense – ${month}`, // ✅ REQUIRED
+        data: sortedDays.map(d => data[d]),
         borderColor: "#16a34a",
+        backgroundColor: "rgba(22,163,74,0.15)",
         tension: 0.3
       }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false }
+      }
     }
   });
 }
 
 /* TABLE */
 function renderTable() {
-  const tbody = document.getElementById("expenseTable");
-  tbody.innerHTML = "";
-
+  expenseTable.innerHTML = "";
   expenses.forEach(e => {
-    tbody.innerHTML += `
+    expenseTable.innerHTML += `
       <tr>
         <td>${new Date(e.date).toLocaleDateString()}</td>
         <td>${e.description}</td>
         <td>₹${e.amount}</td>
-        <td><button onclick="deleteExpense('${e._id}')">❌</button></td>
+        <td><button class="btn-danger" onclick="openModal('${e._id}')">❌</button></td>
       </tr>`;
   });
 }
 
-/* DELETE */
-async function deleteExpense(id) {
-  await fetch(API + "/expense/" + id, { method: "DELETE" });
+/* MODAL */
+function openModal(id) {
+  const e = expenses.find(x => x._id === id);
+  deleteId = id;
+  delDate.innerText = new Date(e.date).toLocaleDateString();
+  delDesc.innerText = e.description;
+  delAmount.innerText = e.amount;
+  confirmModal.style.display = "flex";
+}
+
+function closeModal() {
+  confirmModal.style.display = "none";
+}
+
+async function confirmDelete() {
+  await fetch(API + "/expense/" + deleteId, { method: "DELETE" });
+  closeModal();
   loadExpenses();
 }
 
+monthSelect.onchange = renderDayChart;
 loadExpenses();
 </script>
 
