@@ -45,7 +45,7 @@ app.use(cors({
   allowedHeaders: ["Content-Type"]
 }));
 
-app.options("*", cors()); // 🔥 REQUIRED for preflight
+// app.options("*", cors()); // 🔥 REQUIRED for preflight
 
 // -------------------- Routes --------------------
 
