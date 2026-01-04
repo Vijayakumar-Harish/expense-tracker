@@ -34,14 +34,31 @@ const expenseSchema = new mongoose.Schema({
 
 const Expense = mongoose.model("Expense", expenseSchema);
 
+
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "http://127.0.0.1:5500",
+    "https://vijayakumar-harish.github.io"
+  ],
+  methods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type"]
+}));
+
+app.options("*", cors()); // 🔥 REQUIRED for preflight
+
 // -------------------- Routes --------------------
 
 // Add expense
 app.post("/expense", async (req, res) => {
-  const expense = await Expense.create(req.body);
-  res.json(expense);
+  try {
+    const expense = await Expense.create(req.body);
+    res.json(expense);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to add expense" });
+  }
 });
-
 // Get all expenses
 app.get("/expenses", async (req, res) => {
   const expenses = await Expense.find().sort({ date: -1 });
