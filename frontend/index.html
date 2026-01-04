@@ -10,10 +10,8 @@
   --primary: #6366f1;
   --bg: #f1f5f9;
   --card: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --success: #16a34a;
   --danger: #dc2626;
+  --success: #16a34a;
 }
 
 * { box-sizing: border-box; }
@@ -21,7 +19,6 @@
 body {
   font-family: Inter, system-ui, sans-serif;
   background: var(--bg);
-  margin: 0;
   padding: 24px;
 }
 
@@ -30,7 +27,7 @@ h1 { margin-bottom: 24px; }
 .card {
   background: var(--card);
   padding: 20px;
-  border-radius: 12px;
+  border-radius: 14px;
   margin-bottom: 20px;
   box-shadow: 0 10px 25px rgba(0,0,0,0.05);
 }
@@ -68,6 +65,18 @@ button {
   font-weight: 600;
 }
 
+.progress {
+  height: 10px;
+  background: #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.progress div {
+  height: 100%;
+  background: var(--primary);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -81,9 +90,9 @@ th, td {
 
 tr:hover { background: #f8fafc; }
 
-canvas { max-height: 300px; }
+canvas { max-height: 280px; }
 
-/* ---------- MODAL ---------- */
+/* MODAL */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -131,11 +140,23 @@ canvas { max-height: 300px; }
   <button onclick="addExpense()">Add Expense</button>
 </div>
 
+<!-- BUDGET -->
+<div class="card">
+  <h3>🎯 Monthly Budget</h3>
+  <input id="budgetInput" type="number" placeholder="Set monthly budget ₹" />
+  <button onclick="saveBudget()">Save</button>
+  <p id="budgetError" style="color:#dc2626; font-size:14px; display:none;"></p>
+
+  <p id="budgetText"></p>
+  <div class="progress"><div id="budgetBar"></div></div>
+</div>
+
 <!-- METRICS -->
 <div class="metrics">
   <div class="metric"><h4>Total</h4><p id="totalText">₹0</p></div>
   <div class="metric"><h4>This Month</h4><p id="monthText">₹0</p></div>
-  <div class="metric"><h4>Today</h4><p id="todayText">₹0</p></div>
+  <div class="metric"><h4>Avg / Day</h4><p id="avgDayText">₹0</p></div>
+  <div class="metric"><h4>Highest Day</h4><p id="highestDayText">₹0</p></div>
 </div>
 
 <!-- CHARTS -->
@@ -150,6 +171,22 @@ canvas { max-height: 300px; }
   <canvas id="dayChart"></canvas>
 </div>
 
+<!-- EXPORT -->
+<div class="card">
+  <button onclick="exportCSV()">⬇️ Export CSV</button>
+</div>
+<!-- FILTER BAR -->
+<div class="card">
+  <h3>🔍 Filter Expenses</h3>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px;">
+    <input type="date" id="fromDate" />
+    <input type="date" id="toDate" />
+    <input type="number" id="minAmount" placeholder="Min ₹" />
+    <input type="number" id="maxAmount" placeholder="Max ₹" />
+    <input type="text" id="searchText" placeholder="Search description" />
+    <button onclick="clearFilters()">Clear</button>
+  </div>
+</div>
 <!-- TABLE -->
 <div class="card">
   <h3>🧾 Expense History</h3>
@@ -186,11 +223,14 @@ canvas { max-height: 300px; }
 const API = "http://localhost:4000";
 let expenses = [];
 let deleteId = null;
-let monthChart, dayChart;
+let monthChart = null;
+let dayChart = null;
 
 /* ADD */
 async function addExpense() {
+  if (!dateInput.value || !amountInput.value || !descInput.value) return;
   const d = new Date(dateInput.value);
+
   await fetch(API + "/expense", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -202,6 +242,8 @@ async function addExpense() {
       description: descInput.value
     })
   });
+
+  dateInput.value = amountInput.value = descInput.value = "";
   loadExpenses();
 }
 
@@ -214,51 +256,57 @@ async function loadExpenses() {
   populateMonthDropdown();
   renderDayChart();
   renderTable();
+  renderBudget();
 }
 
 /* METRICS */
 function renderMetrics() {
-  const today = new Date().toDateString();
+  let total = 0, monthTotal = 0;
+  let dayMap = {};
   const currentMonth = new Date().toLocaleString("default", { month: "long" });
-
-  let total = 0, todayTotal = 0, monthTotal = 0;
 
   expenses.forEach(e => {
     total += e.amount;
-    if (new Date(e.date).toDateString() === today) todayTotal += e.amount;
     if (e.month === currentMonth) monthTotal += e.amount;
+    dayMap[e.day] = (dayMap[e.day] || 0) + e.amount;
   });
 
+  const dayValues = Object.values(dayMap);
   totalText.innerText = "₹" + total;
-  todayText.innerText = "₹" + todayTotal;
   monthText.innerText = "₹" + monthTotal;
+  avgDayText.innerText = "₹" + (dayValues.length ? Math.round(monthTotal / dayValues.length) : 0);
+  highestDayText.innerText = "₹" + (dayValues.length ? Math.max(...dayValues) : 0);
 }
 
 /* MONTH CHART */
 function renderMonthChart() {
+  if (monthChart) monthChart.destroy();
+
   const data = {};
 
   expenses.forEach(e => {
-    data[e.month] = (data[e.month] || 0) + e.amount;
+    const d = new Date(e.date);
+    const month = d.toLocaleString("default", { month: "long" });
+
+    data[month] = (data[month] || 0) + e.amount;
   });
 
-  if (monthChart) monthChart.destroy();
+  const labels = Object.keys(data);
+  if (!labels.length) return;
 
   monthChart = new Chart(document.getElementById("monthChart"), {
     type: "bar",
     data: {
-      labels: Object.keys(data),
+      labels,
       datasets: [{
-        label: "Monthly Expense (₹)", // ✅ REQUIRED
-        data: Object.values(data),
+        label: "Monthly Expense (₹)",
+        data: labels.map(l => data[l]),
         backgroundColor: "#6366f1"
       }]
     },
     options: {
       responsive: true,
-      plugins: {
-        legend: { display: false }
-      }
+      plugins: { legend: { display: false } }
     }
   });
 }
@@ -266,43 +314,39 @@ function renderMonthChart() {
 /* DAY CHART */
 function populateMonthDropdown() {
   monthSelect.innerHTML = "";
-
-  const months = [...new Set(expenses.map(e => e.month))];
-
-  months.forEach(m => {
-    const o = document.createElement("option");
-    o.value = m;
-    o.innerText = m;
-    monthSelect.appendChild(o);
+  [...new Set(expenses.map(e => e.month))].forEach(m => {
+    monthSelect.innerHTML += `<option>${m}</option>`;
   });
-
-  if (months.length > 0) {
-    monthSelect.value = months[0]; // ✅ SELECT FIRST MONTH
-  }
 }
 
 function renderDayChart() {
-  const month = monthSelect.value;
-  if (!month) return;
+  if (dayChart) dayChart.destroy();
+
+  const selectedMonth = monthSelect.value;
+  if (!selectedMonth) return;
 
   const data = {};
-  expenses
-    .filter(e => e.month === month)
-    .forEach(e => {
-      data[e.day] = (data[e.day] || 0) + e.amount;
-    });
 
-  const sortedDays = Object.keys(data).sort((a, b) => a - b);
+  expenses.forEach(e => {
+    const d = new Date(e.date);
+    const month = d.toLocaleString("default", { month: "long" });
+    const day = d.getDate();
 
-  if (dayChart) dayChart.destroy();
+    if (month === selectedMonth) {
+      data[day] = (data[day] || 0) + e.amount;
+    }
+  });
+
+  const labels = Object.keys(data).sort((a, b) => a - b);
+  if (!labels.length) return;
 
   dayChart = new Chart(document.getElementById("dayChart"), {
     type: "line",
     data: {
-      labels: sortedDays,
+      labels,
       datasets: [{
-        label: `Daily Expense – ${month}`, // ✅ REQUIRED
-        data: sortedDays.map(d => data[d]),
+        label: `Daily Expense – ${selectedMonth}`,
+        data: labels.map(l => data[l]),
         borderColor: "#16a34a",
         backgroundColor: "rgba(22,163,74,0.15)",
         tension: 0.3
@@ -310,28 +354,49 @@ function renderDayChart() {
     },
     options: {
       responsive: true,
-      plugins: {
-        legend: { display: false }
-      }
+      plugins: { legend: { display: false } }
     }
   });
 }
 
 /* TABLE */
 function renderTable() {
-  expenseTable.innerHTML = "";
-  expenses.forEach(e => {
-    expenseTable.innerHTML += `
-      <tr>
-        <td>${new Date(e.date).toLocaleDateString()}</td>
-        <td>${e.description}</td>
-        <td>₹${e.amount}</td>
-        <td><button class="btn-danger" onclick="openModal('${e._id}')">❌</button></td>
-      </tr>`;
+  const fromDate = document.getElementById("fromDate").value;
+  const toDate = document.getElementById("toDate").value;
+  const minAmount = Number(document.getElementById("minAmount").value);
+  const maxAmount = Number(document.getElementById("maxAmount").value);
+  const search = document.getElementById("searchText").value.toLowerCase();
+
+  const filtered = expenses.filter(e => {
+    const d = new Date(e.date);
+
+    if (fromDate && d < new Date(fromDate)) return false;
+    if (toDate && d > new Date(toDate)) return false;
+    if (minAmount && e.amount < minAmount) return false;
+    if (maxAmount && e.amount > maxAmount) return false;
+    if (search && !e.description.toLowerCase().includes(search)) return false;
+
+    return true;
   });
+
+  if (!filtered.length) {
+    expenseTable.innerHTML = `<tr><td colspan="4">No expenses found</td></tr>`;
+    return;
+  }
+
+  expenseTable.innerHTML = filtered.map(e => `
+    <tr>
+      <td>${new Date(e.date).toLocaleDateString()}</td>
+      <td>${e.description}</td>
+      <td>₹${e.amount}</td>
+      <td>
+        <button class="btn-danger" onclick="openModal('${e._id}')">❌</button>
+      </td>
+    </tr>
+  `).join("");
 }
 
-/* MODAL */
+/* DELETE MODAL */
 function openModal(id) {
   const e = expenses.find(x => x._id === id);
   deleteId = id;
@@ -351,8 +416,75 @@ async function confirmDelete() {
   loadExpenses();
 }
 
+/* BUDGET */
+function saveBudget() {
+  const budget = Number(budgetInput.value);
+  const spent = Number(monthText.innerText.replace("₹", ""));
+
+  // Reset error state
+  budgetError.style.display = "none";
+  budgetError.innerText = "";
+
+  if (!budget || budget <= 0) {
+    budgetError.innerText = "Please enter a valid budget amount.";
+    budgetError.style.display = "block";
+    return;
+  }
+
+  if (budget < spent) {
+    budgetError.innerText =
+      `Budget ₹${budget} is less than already spent ₹${spent}. Increase your budget.`;
+    budgetError.style.display = "block";
+    return;
+  }
+
+  // ✅ Save only if valid
+  localStorage.setItem("budget", budget);
+
+  // ✅ Clear input after success
+  budgetInput.value = "";
+
+  renderBudget();
+}
+
+
+function renderBudget() {
+  const budget = Number(localStorage.getItem("budget"));
+  if (!budget) return;
+
+  const spent = Number(monthText.innerText.replace("₹",""));
+  budgetText.innerText = `₹${spent} / ₹${budget}`;
+  budgetBar.style.width = Math.min(100, (spent / budget) * 100) + "%";
+}
+
+/* EXPORT */
+function exportCSV() {
+  let csv = "Date,Description,Amount\n";
+  expenses.forEach(e =>
+    csv += `${new Date(e.date).toLocaleDateString()},${e.description},${e.amount}\n`
+  );
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv]));
+  a.download = "expenses.csv";
+  a.click();
+}
+function clearFilters() {
+  fromDate.value = "";
+  toDate.value = "";
+  minAmount.value = "";
+  maxAmount.value = "";
+  searchText.value = "";
+  renderTable();
+}
 monthSelect.onchange = renderDayChart;
 loadExpenses();
+["fromDate", "toDate", "minAmount", "maxAmount", "searchText"]
+  .forEach(id => {
+    document.getElementById(id).addEventListener("input", renderTable);
+  });
+  budgetInput.addEventListener("input", () => {
+  budgetError.style.display = "none";
+});
 </script>
 
 </body>
